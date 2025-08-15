@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MarLidu – CNS Rater Training</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto; background:linear-gradient(180deg,#0a2a5c,#0b5a66); color:#fff; }
+    .wrap { max-width:900px; margin:40px auto; padding:0 16px; display:grid; gap:16px; }
+    header { display:flex; justify-content:space-between; align-items:center; padding:14px 0; border-bottom:1px solid #ffffff22; }
+    h1 { margin:0; font-size:22px; }
+    section { background:#ffffff; color:#05324f; border-radius:14px; padding:16px; box-shadow:0 8px 28px rgba(0,0,0,.12); }
+    label { display:block; font-size:12px; opacity:.8; margin-bottom:4px; }
+    input, select, button { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid #cfe0ff; }
+    button { background:#17c0ae; color:#05324f; border:none; font-weight:700; cursor:pointer; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .pill { background:#0b5a66; color:#e8ffff; border:1px solid #2ac7ba; border-radius:999px; padding:8px 14px; text-decoration:none; }
+    .muted { color:#333; font-size:14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div style="width:36px;height:36px;border-radius:8px;background:#17c0ae;color:#05324f;display:grid;place-items:center;font-weight:800">M</div>
+        <div>
+          <h1>MarLidu</h1>
+          <div style="font-size:12;opacity:.8">CNS Rater Training & Clinical Trial Excellence</div>
+        </div>
+      </div>
+      <div id="authBox" class="row"></div>
+    </header>
+
+    <div class="row">
+      <a class="pill" href="#modules">Modules</a>
+      <a class="pill" href="#upload">Admin Upload</a>
+    </div>
+
+    <section id="modules">
+      <h3>Training Modules</h3>
+      <div class="muted">MDD · Schizophrenia · Bipolar</div>
+      <div id="resourceList" class="muted" style="margin-top:8px">No resources yet.</div>
+    </section>
+
+    <section id="upload">
+      <h3>Admin Upload (video/audio/PDF/PPT)</h3>
+      <div class="row">
+        <div>
+          <label>Module</label>
+          <select id="moduleSel">
+            <option value="mdd">MDD</option>
+            <option value="scz">Schizophrenia</option>
+            <option value="bipolar">Bipolar</option>
+          </select>
+        </div>
+        <div>
+          <label>File</label>
+          <input type="file" id="fileInp" />
+        </div>
+        <button id="uploadBtn">Upload</button>
+        <span id="uploadMsg" class="muted"></span>
+      </div>
+      <div class="muted" style="margin-top:6px">Accepted: mp4, webm, mov, mp3, wav, m4a, pdf, ppt, pptx</div>
+    </section>
+  </div>
+
+  <!-- Firebase (ESM via CDN) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
+
+    // 🔧 YOUR CONFIG (storageBucket corrected to .appspot.com)
+    const firebaseConfig = {
+      apiKey: "AIzaSyCUMWDE3_NI06fm-Bm31XjLS8-scmVQ8aw",
+      authDomain: "marlidu-b3b95.firebaseapp.com",
+      projectId: "marlidu-b3b95",
+      storageBucket: "marlidu-b3b95.appspot.com",
+      messagingSenderId: "152143515296",
+      appId: "1:152143515296:web:4509f8f8ca385bfa5a83c5"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+
+    // ——— simple admin allowlist ———
+    const ADMIN_EMAILS = ["YOUR_ADMIN_EMAIL@EXAMPLE.COM"]; // <-- change to your admin email
+
+    // UI elements
+    const authBox = document.getElementById("authBox");
+    const fileInp = document.getElementById("fileInp");
+    const moduleSel = document.getElementById("moduleSel");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const uploadMsg = document.getElementById("uploadMsg");
+    const resourceList = document.getElementById("resourceList");
+
+    function renderAuth(user) {
+      authBox.innerHTML = "";
+      if (user) {
+        const span = document.createElement("span");
+        span.textContent = `Signed in as ${user.email}`;
+        span.style.fontSize = "12px";
+        span.style.opacity = "0.9";
+        const btn = document.createElement("button");
+        btn.textContent = "Sign out";
+        btn.onclick = () => signOut(auth);
+        authBox.append(span, btn);
+      } else {
+        const email = document.createElement("input");
+        email.placeholder = "admin email";
+        const pass = document.createElement("input");
+        pass.placeholder = "password";
+        pass.type = "password";
+        const btn = document.createElement("button");
+        btn.textContent = "Sign in";
+        btn.onclick = async () => {
+          try {
+            await signInWithEmailAndPassword(auth, email.value, pass.value);
+          } catch (e) { alert(e.message); }
+        };
+        authBox.append(email, pass, btn);
+      }
+    }
+
+    async function listResources() {
+      const snap = await getDocs(query(collection(db, "resources"), orderBy("createdAt", "desc")));
+      if (snap.empty) { resourceList.textContent = "No resources yet."; return; }
+      const items = [];
+      snap.forEach(d => {
+        const r = d.data();
+        items.push(`${r.moduleId.toUpperCase()} · ${r.type} · ${r.name}`);
+      });
+      resourceList.textContent = items.join("  |  ");
+    }
+
+    function guessType(name) {
+      const n = name.toLowerCase();
+      if (/\.(mp4|webm|mov)$/.test(n)) return "video";
+      if (/\.(mp3|wav|m4a)$/.test(n)) return "audio";
+      if (/\.(pdf)$/.test(n)) return "pdf";
+      if (/\.(ppt|pptx)$/.test(n)) return "ppt";
+      return "file";
+    }
+
+    uploadBtn.onclick = async () => {
+      const user = auth.currentUser;
+      if (!user) return alert("Sign in first.");
+      if (!ADMIN_EMAILS.includes(user.email)) return alert("Admin only.");
+      const f = fileInp.files?.[0];
+      if (!f) return alert("Choose a file.");
+      uploadMsg.textContent = "Uploading…";
+      const path = `resources/${moduleSel.value}/${Date.now()}_${f.name}`;
+      const r = ref(storage, path);
+      await uploadBytes(r, f);
+      const url = await getDownloadURL(r);
+      await addDoc(collection(db, "resources"), {
+        moduleId: moduleSel.value,
+        name: f.name,
+        type: guessType(f.name),
+        url,
+        createdAt: serverTimestamp(),
+        createdBy: user.uid
+      });
+      uploadMsg.textContent = "Uploaded ✔";
+      fileInp.value = "";
+      await listResources();
+    };
+
+    onAuthStateChanged(auth, async (u) => {
+      renderAuth(u);
+    });
+
+    // populate list on load
+    listResources();
+  </script>
+</body>
+</html>
