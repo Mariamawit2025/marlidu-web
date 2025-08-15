@@ -64,6 +64,11 @@
     </section>
   </div>
 
+  <!-- Firebase connection status badge -->
+  <div id="firebase-status" style="position:fixed;right:10px;bottom:10px;background:#0b5a66;color:#e8ffff;padding:6px 10px;border-radius:8px;font-size:12px">
+    connecting…
+  </div>
+
   <!-- Firebase (ESM via CDN) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
@@ -85,6 +90,12 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
     const storage = getStorage(app);
+
+    // simple connection test
+    const statusEl = document.getElementById("firebase-status");
+    function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
+    setStatus("Firebase connected ✓");
+    console.log("Firebase project:", app.options.projectId);
 
     // ——— simple admin allowlist ———
     const ADMIN_EMAILS = ["YOUR_ADMIN_EMAIL@EXAMPLE.COM"]; // <-- change to your admin email
@@ -172,9 +183,6 @@
     onAuthStateChanged(auth, async (u) => {
       renderAuth(u);
     });
-
-    // populate list on load
-    listResources();
   </script>
 </body>
 </html>
