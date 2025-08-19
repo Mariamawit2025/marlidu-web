@@ -7,6 +7,7 @@
   <div style="display:flex;gap:8px;align-items:center">
     <input type="file" id="fileInp"/><button id="uploadBtn">Upload</button><span id="msg"></span>
   </div>
+
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
@@ -15,6 +16,7 @@
       setMaxUploadRetryTime, setMaxOperationRetryTime
     } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 
+    // --- your config (unchanged) ---
     const firebaseConfig = {
       apiKey: "AIzaSyCUMWDE3_NI06fm-Bm31XjLS8-scmVQ8aw",
       authDomain: "marlidu-b3b95.firebaseapp.com",
@@ -27,6 +29,8 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const storage = getStorage(app, "gs://marlidu-b3b95.appspot.com");
+
+    // extend retry windows so slow networks don't time out
     setMaxUploadRetryTime(storage, 10 * 60 * 1000);
     setMaxOperationRetryTime(storage, 10 * 60 * 1000);
 
@@ -34,20 +38,28 @@
     const msg = document.getElementById("msg");
     const say = t => { msg.textContent = t; console.log(t); };
 
+    // quick sign-in prompt (only in your browser)
     const pw = prompt("Enter password for " + ADMIN_EMAIL);
-    try { await signInWithEmailAndPassword(auth, ADMIN_EMAIL, pw); say("Signed in as " + ADMIN_EMAIL); }
-    catch (e) { say("Sign-in failed: " + (e.code || e.message)); }
+    try {
+      await signInWithEmailAndPassword(auth, ADMIN_EMAIL, pw);
+      say("Signed in as " + ADMIN_EMAIL);
+    } catch (e) {
+      say("Sign-in failed: " + (e.code || e.message));
+    }
 
     const fileInp = document.getElementById("fileInp");
     document.getElementById("uploadBtn").onclick = () => {
       const f = fileInp.files?.[0]; if (!f) return say("Choose a file.");
+
       say(`Starting upload: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
       const r = ref(storage, `resources/test/${Date.now()}_${f.name}`);
       const task = uploadBytesResumable(r, f, { contentType: f.type || undefined });
+
+      let lastPct = 0;
       task.on("state_changed",
         s => {
           const pct = Math.round(100 * s.bytesTransferred / s.totalBytes);
-          if (pct % 10 === 0) console.log("Upload", pct + "%");
+          if (pct !== lastPct && pct % 10 === 0) { console.log("Upload", pct + "%"); lastPct = pct; }
         },
         e => { console.error("Upload error:", e.code, e.message); say("Upload failed: " + (e.code || e.message)); },
         async () => { const url = await getDownloadURL(task.snapshot.ref); say("Uploaded ✔ URL: " + url); }
