@@ -97,8 +97,9 @@
     setStatus("Firebase connected ✓");
     console.log("Firebase project:", app.options.projectId);
 
-    // ——— simple admin allowlist ———
-    const ADMIN_EMAILS = ["YOUR_ADMIN_EMAIL@EXAMPLE.COM"]; // <-- change to your admin email
+    // ——— simple admin allowlist ———// Make admin emails lowercase and compare in lowercase
+    const ADMIN_EMAILS = ["yosephtworku@gmail.com"].map(e => e.toLowerCase());
+    // <-- change to your admin email
 
     // UI elements
     const authBox = document.getElementById("authBox");
@@ -159,7 +160,7 @@
     uploadBtn.onclick = async () => {
       const user = auth.currentUser;
       if (!user) return alert("Sign in first.");
-      if (!ADMIN_EMAILS.includes(user.email)) return alert("Admin only.");
+      if (!ADMIN_EMAILS.includes((user.email || "").toLowerCase())) return alert("Admin only.");
       const f = fileInp.files?.[0];
       if (!f) return alert("Choose a file.");
       uploadMsg.textContent = "Uploading…";
