@@ -1,22 +1,53 @@
 <!doctype html>
 <html>
-<head><meta charset="utf-8"/><title>MarLidu – Test Upload</title></head>
-<body style="font-family:system-ui;max-width:600px;margin:40px auto">
-  <h2>Test Upload (Storage only)</h2>
-  <p>Select a small file (100 KB – 2 MB). Open DevTools → Console to see logs.</p>
-  <div style="display:flex;gap:8px;align-items:center">
-    <input type="file" id="fileInp"/><button id="uploadBtn">Upload</button><span id="msg"></span>
+<head>
+  <meta charset="utf-8"/>
+  <title>MarLidu – Test Upload (diagnostic)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+</head>
+<body style="font-family:system-ui;max-width:720px;margin:40px auto;line-height:1.4">
+  <h2>Test Upload (Storage only, with on-page logs)</h2>
+
+  <div id="log" style="background:#f6f8fa;border:1px solid #ddd;padding:10px;border-radius:8px;white-space:pre-wrap"></div>
+  <script>
+    const logEl = document.getElementById('log');
+    function say(...a){ const s=a.join(' '); console.log(s); logEl.textContent += s + "\n"; }
+    window.addEventListener('error', e => say('window.onerror:', e.message || e));
+    window.addEventListener('unhandledrejection', e => say('unhandledrejection:', e.reason && (e.reason.message||e.reason) || e));
+    say('Page loaded at', new Date().toISOString());
+  </script>
+
+  <hr>
+
+  <h3>Sign in (admin)</h3>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input id="email" placeholder="email" value="yosephtworku@gmail.com" style="padding:8px;border-radius:6px;border:1px solid #ccc"/>
+    <input id="pw" placeholder="password" type="password" style="padding:8px;border-radius:6px;border:1px solid #ccc"/>
+    <button id="signin">Sign in</button>
+    <span id="authStatus"></span>
+  </div>
+
+  <h3 style="margin-top:20px">Upload a small file (100 KB – 2 MB)</h3>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input type="file" id="fileInp"/>
+    <button id="uploadBtn" disabled>Upload</button>
+    <span id="msg"></span>
   </div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-    import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import {
       getStorage, ref, uploadBytesResumable, getDownloadURL,
       setMaxUploadRetryTime, setMaxOperationRetryTime
     } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 
-    // --- your config (unchanged) ---
+    const log = (...a) => { const s=a.join(' '); console.log(s); document.getElementById('log').textContent += s + "\n"; };
+    const msgEl = document.getElementById('msg');
+    const setMsg = t => { msgEl.textContent = t; log('MSG:', t); };
+
+    // 1) Init
+    log('Initializing Firebase…');
     const firebaseConfig = {
       apiKey: "AIzaSyCUMWDE3_NI06fm-Bm31XjLS8-scmVQ8aw",
       authDomain: "marlidu-b3b95.firebaseapp.com",
@@ -25,44 +56,74 @@
       messagingSenderId: "152143515296",
       appId: "1:152143515296:web:4509f8f8ca385bfa5a83c5"
     };
-
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const storage = getStorage(app, "gs://marlidu-b3b95.appspot.com");
-
-    // extend retry windows so slow networks don't time out
     setMaxUploadRetryTime(storage, 10 * 60 * 1000);
     setMaxOperationRetryTime(storage, 10 * 60 * 1000);
+    log('Firebase initialized for project:', app.options.projectId);
 
-    const ADMIN_EMAIL = "yosephtworku@gmail.com";
-    const msg = document.getElementById("msg");
-    const say = t => { msg.textContent = t; console.log(t); };
+    // 2) Auth
+    const signinBtn = document.getElementById('signin');
+    const emailEl = document.getElementById('email');
+    const pwEl = document.getElementById('pw');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const authStatus = document.getElementById('authStatus');
 
-    // quick sign-in prompt (only in your browser)
-    const pw = prompt("Enter password for " + ADMIN_EMAIL);
-    try {
-      await signInWithEmailAndPassword(auth, ADMIN_EMAIL, pw);
-      say("Signed in as " + ADMIN_EMAIL);
-    } catch (e) {
-      say("Sign-in failed: " + (e.code || e.message));
-    }
+    onAuthStateChanged(auth, (u) => {
+      if (u) {
+        authStatus.textContent = `Signed in as ${u.email}`;
+        uploadBtn.disabled = false;
+        log('Auth state: signed in as', u.email);
+      } else {
+        authStatus.textContent = 'Not signed in';
+        uploadBtn.disabled = true;
+        log('Auth state: signed out');
+      }
+    });
 
-    const fileInp = document.getElementById("fileInp");
-    document.getElementById("uploadBtn").onclick = () => {
-      const f = fileInp.files?.[0]; if (!f) return say("Choose a file.");
+    signinBtn.onclick = async () => {
+      try {
+        const email = emailEl.value.trim();
+        const pw = pwEl.value;
+        log('Signing in as', email, '…');
+        await signInWithEmailAndPassword(auth, email, pw);
+        log('Sign-in ok');
+      } catch (e) {
+        log('Sign-in failed:', e.code || e.message, e);
+        authStatus.textContent = 'Sign-in failed: ' + (e.code || e.message);
+      }
+    };
 
-      say(`Starting upload: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
-      const r = ref(storage, `resources/test/${Date.now()}_${f.name}`);
+    // 3) Upload
+    const fileInp = document.getElementById('fileInp');
+    uploadBtn.onclick = () => {
+      const f = fileInp.files?.[0];
+      if (!f) return setMsg('Choose a file.');
+      setMsg(`Starting upload: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
+
+      const path = `resources/test/${Date.now()}_${f.name}`;
+      const r = ref(storage, path);
       const task = uploadBytesResumable(r, f, { contentType: f.type || undefined });
 
       let lastPct = 0;
-      task.on("state_changed",
-        s => {
+      task.on('state_changed',
+        (s) => {
           const pct = Math.round(100 * s.bytesTransferred / s.totalBytes);
-          if (pct !== lastPct && pct % 10 === 0) { console.log("Upload", pct + "%"); lastPct = pct; }
+          if (pct !== lastPct && pct % 10 === 0) { log('Upload', pct + '%'); lastPct = pct; }
         },
-        e => { console.error("Upload error:", e.code, e.message); say("Upload failed: " + (e.code || e.message)); },
-        async () => { const url = await getDownloadURL(task.snapshot.ref); say("Uploaded ✔ URL: " + url); }
+        (err) => {
+          log('Upload error:', err.code, err.message);
+          let m = err.message || String(err);
+          if ((err.code||'').includes('permission-denied')) m = 'Permission denied (check Storage rules and admin email).';
+          if ((err.code||'').includes('unauthenticated')) m = 'Unauthenticated (sign in first).';
+          if ((err.code||'').includes('retry-limit-exceeded')) m = 'Retry limit exceeded (slow/blocked network). Try another network or incognito.';
+          setMsg('Upload failed: ' + m);
+        },
+        async () => {
+          const url = await getDownloadURL(task.snapshot.ref);
+          setMsg('Uploaded ✔ URL: ' + url);
+        }
       );
     };
   </script>
