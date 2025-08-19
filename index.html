@@ -25,7 +25,7 @@
         <div style="width:36px;height:36px;border-radius:8px;background:#17c0ae;color:#05324f;display:grid;place-items:center;font-weight:800">M</div>
         <div>
           <h1>MarLidu</h1>
-          <div style="font-size:12;opacity:.8">CNS Rater Training & Clinical Trial Excellence</div>
+          <div style="font-size:12px;opacity:.8">CNS Rater Training & Clinical Trial Excellence</div>
         </div>
       </div>
       <div id="authBox" class="row"></div>
@@ -59,6 +59,8 @@
         </div>
         <button id="uploadBtn">Upload</button>
         <span id="uploadMsg" class="muted"></span>
+        <!-- NEW: progress bar -->
+        <progress id="uploadProgress" value="0" max="100" style="width:220px; vertical-align:middle; margin-left:6px;"></progress>
       </div>
       <div class="muted" style="margin-top:6px">Accepted: mp4, webm, mov, mp3, wav, m4a, pdf, ppt, pptx</div>
     </section>
@@ -73,10 +75,10 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { getFirestore, collection, addDoc, getDocs, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
-    import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, serverTimestamp, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { getStorage, ref, getDownloadURL, uploadBytesResumable } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 
-    // 🔧 YOUR CONFIG (storageBucket corrected to .appspot.com)
+    // 🔧 YOUR CONFIG
     const firebaseConfig = {
       apiKey: "AIzaSyCUMWDE3_NI06fm-Bm31XjLS8-scmVQ8aw",
       authDomain: "marlidu-b3b95.firebaseapp.com",
@@ -97,9 +99,8 @@
     setStatus("Firebase connected ✓");
     console.log("Firebase project:", app.options.projectId);
 
-    // ——— simple admin allowlist ———// Make admin emails lowercase and compare in lowercase
+    // ——— simple admin allowlist (lowercased) ———
     const ADMIN_EMAILS = ["yosephtworku@gmail.com"].map(e => e.toLowerCase());
-    // <-- change to your admin email
 
     // UI elements
     const authBox = document.getElementById("authBox");
@@ -108,6 +109,7 @@
     const uploadBtn = document.getElementById("uploadBtn");
     const uploadMsg = document.getElementById("uploadMsg");
     const resourceList = document.getElementById("resourceList");
+    const progressEl = document.getElementById("uploadProgress");
 
     function renderAuth(user) {
       authBox.innerHTML = "";
@@ -140,12 +142,20 @@
     async function listResources() {
       const snap = await getDocs(query(collection(db, "resources"), orderBy("createdAt", "desc")));
       if (snap.empty) { resourceList.textContent = "No resources yet."; return; }
-      const items = [];
+      // render as clickable links
+      const frag = document.createDocumentFragment();
       snap.forEach(d => {
         const r = d.data();
-        items.push(`${r.moduleId.toUpperCase()} · ${r.type} · ${r.name}`);
+        const a = document.createElement("a");
+        a.href = r.url;
+        a.target = "_blank";
+        a.rel = "noreferrer";
+        a.textContent = `${r.moduleId.toUpperCase()} · ${r.type} · ${r.name}`;
+        a.style.marginRight = "12px";
+        frag.appendChild(a);
       });
-      resourceList.textContent = items.join("  |  ");
+      resourceList.innerHTML = "";
+      resourceList.appendChild(frag);
     }
 
     function guessType(name) {
@@ -157,33 +167,80 @@
       return "file";
     }
 
+    // NEW: resumable upload with progress
     uploadBtn.onclick = async () => {
       const user = auth.currentUser;
       if (!user) return alert("Sign in first.");
       if (!ADMIN_EMAILS.includes((user.email || "").toLowerCase())) return alert("Admin only.");
+
       const f = fileInp.files?.[0];
       if (!f) return alert("Choose a file.");
-      uploadMsg.textContent = "Uploading…";
+
+      const MAX_MB = 500; // optional guard
+      const sizeMB = (f.size / (1024 * 1024)).toFixed(1);
+      if (f.size > MAX_MB * 1024 * 1024) {
+        return alert(`File is ${sizeMB} MB. Please upload ≤ ${MAX_MB} MB or compress it.`);
+      }
+
+      const ok = /\.(mp4|webm|mov|mp3|wav|m4a|pdf|ppt|pptx)$/i.test(f.name);
+      if (!ok) return alert("Unsupported type. Use video/audio/pdf/ppt/pptx.");
+
+      const start = Date.now();
+      uploadMsg.textContent = `Starting upload… (${sizeMB} MB)`;
+      if (progressEl) progressEl.value = 0;
+
       const path = `resources/${moduleSel.value}/${Date.now()}_${f.name}`;
       const r = ref(storage, path);
-      await uploadBytes(r, f);
-      const url = await getDownloadURL(r);
-      await addDoc(collection(db, "resources"), {
-        moduleId: moduleSel.value,
-        name: f.name,
-        type: guessType(f.name),
-        url,
-        createdAt: serverTimestamp(),
-        createdBy: user.uid
-      });
-      uploadMsg.textContent = "Uploaded ✔";
-      fileInp.value = "";
-      await listResources();
+      const metadata = { contentType: f.type || undefined };
+
+      const task = uploadBytesResumable(r, f, metadata);
+
+      task.on(
+        "state_changed",
+        (snap) => {
+          const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+          if (progressEl) progressEl.value = pct;
+
+          let speed = "";
+          const elapsed = (Date.now() - start) / 1000;
+          if (elapsed > 1) {
+            const kbps = (snap.bytesTransferred / 1024 / elapsed).toFixed(1);
+            speed = ` • ~${kbps} KB/s`;
+          }
+          uploadMsg.textContent = `Uploading… ${pct}%${speed}`;
+        },
+        (err) => {
+          let msg = err.message || String(err);
+          if (String(err.code || "").includes("permission-denied")) {
+            msg = "Permission denied. Check Storage rules and admin email.";
+          }
+          uploadMsg.textContent = `Upload failed: ${msg}`;
+          console.error(err);
+        },
+        async () => {
+          const url = await getDownloadURL(task.snapshot.ref);
+          await addDoc(collection(db, "resources"), {
+            moduleId: moduleSel.value,
+            name: f.name,
+            type: guessType(f.name),
+            url,
+            createdAt: serverTimestamp(),
+            createdBy: user.uid
+          });
+          uploadMsg.textContent = "Uploaded ✔";
+          if (progressEl) progressEl.value = 100;
+          fileInp.value = "";
+          await listResources();
+        }
+      );
     };
 
     onAuthStateChanged(auth, async (u) => {
       renderAuth(u);
     });
+
+    // show any existing resources on first load
+    listResources().catch(console.error);
   </script>
 </body>
 </html>
