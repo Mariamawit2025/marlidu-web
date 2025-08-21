@@ -1,112 +1,110 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Uploader</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body{font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;background:#fafafa;color:#111}
-    .card{border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
-    .row{margin:12px 0}
-    progress{width:100%}
-    .muted{color:#6b7280;font-size:0.9rem}
-    .ok{color:#065f46}
-    .err{color:#7f1d1d}
-    .btn{padding:8px 14px;border-radius:10px;border:1px solid #111827;background:#111827;color:#fff;cursor:pointer}
-    .btn:disabled{opacity:.6;cursor:not-allowed}
-    code{background:#f3f4f6;padding:2px 6px;border-radius:6px}
-  </style>
-</head>
-<body>
-  <h1>Upload a file</h1>
-  <div class="card">
-    <div class="row"><input id="file" type="file" /></div>
-    <div class="row">
-      <button id="uploadBtn" class="btn">Upload</button>
-      <button id="signInBtn" class="btn" style="margin-left:8px;">Sign in</button>
-      <button id="signOutBtn" class="btn" style="margin-left:8px;">Sign out</button>
-    </div>
-    <div class="row"><progress id="prog" value="0" max="100" hidden></progress></div>
-    <div id="status" class="row muted">Not signed in.</div>
-    <div id="result" class="row"></div>
-  </div>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+  import {
+    getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut
+  } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+  import {
+    getStorage, ref, uploadBytesResumable, getDownloadURL
+  } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-    import {
-      getAuth, onAuthStateChanged, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut
-    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import {
-      getStorage, ref, uploadBytesResumable, getDownloadURL
-    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
+  const firebaseConfig = {
+    apiKey: "AIzaSyCUMWDE3_NI06fm-Bm31XjLS8-scmVQ8aw",
+    authDomain: "marlidu-b3b95.firebaseapp.com",
+    projectId: "marlidu-b3b95",
+    storageBucket: "marlidu-b3b95.appspot.com",
+    messagingSenderId: "152143515296",
+    appId: "1:152143515296:web:4509f8f8ca385bfa5a83c5"
+  };
 
-    // 🔑 Your Firebase config
-    const firebaseConfig = {
-      apiKey: "AIzaSyCUMWDE3_NI06fm-Bm31XjLS8-scmVQ8aw",
-      authDomain: "marlidu-b3b95.firebaseapp.com",
-      projectId: "marlidu-b3b95",
-      storageBucket: "marlidu-b3b95.appspot.com",
-      messagingSenderId: "152143515296",
-      appId: "1:152143515296:web:4509f8f8ca385bfa5a83c5"
-    };
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const storage = getStorage(app);
 
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const storage = getStorage(app);
-
-    const fileEl = document.getElementById("file");
-    const uploadBtn = document.getElementById("uploadBtn");
-    const signInBtn = document.getElementById("signInBtn");
+  window.addEventListener('DOMContentLoaded', () => {
+    // --- UI refs (after DOM is ready)
+    const fileEl     = document.getElementById("file");
+    const uploadBtn  = document.getElementById("uploadBtn");
+    const signInBtn  = document.getElementById("signInBtn");
     const signOutBtn = document.getElementById("signOutBtn");
-    const statusEl = document.getElementById("status");
-    const progEl = document.getElementById("prog");
-    const resultEl = document.getElementById("result");
+    const statusEl   = document.getElementById("status");
+    const progEl     = document.getElementById("prog");
+    const resultEl   = document.getElementById("result");
+
+    // Guard: if any are missing, log which one
+    const ids = {fileEl, uploadBtn, signInBtn, signOutBtn, statusEl, progEl, resultEl};
+    for (const [k, v] of Object.entries(ids)) {
+      if (!v) { console.error(`Missing element for ${k}. Check the ID in your HTML.`); }
+    }
 
     onAuthStateChanged(auth, (user) => {
-      statusEl.innerHTML = user
-        ? `Signed in as <code>${user.uid}${user.email ? " ("+user.email+")" : ""}</code>`
-        : "Not signed in.";
+      if (statusEl) {
+        statusEl.innerHTML = user
+          ? `Signed in as <code>${user.uid}${user.email ? " ("+user.email+")" : ""}</code>`
+          : "Not signed in.";
+      }
     });
 
     async function ensureSignedIn() {
       if (!auth.currentUser) await signInAnonymously(auth);
     }
 
-    signInBtn.addEventListener("click", async () => {
-      try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-      catch (e) { alert("Sign-in failed: " + e.message); console.error(e); }
-    });
+    if (signInBtn) {
+      signInBtn.addEventListener("click", async () => {
+        try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+        catch (e) { alert("Sign-in failed: " + e.message); console.error(e); }
+      });
+    }
 
-    signOutBtn.addEventListener("click", async () => { try { await signOut(auth); } catch (e) { console.error(e); } });
+    if (signOutBtn) {
+      signOutBtn.addEventListener("click", async () => {
+        try { await signOut(auth); } catch (e) { console.error(e); }
+      });
+    }
 
-    uploadBtn.addEventListener("click", async () => {
-      try {
-        await ensureSignedIn();
-        const file = fileEl.files?.[0];
-        if (!file) return alert("Pick a file first.");
-        const ts = new Date().toISOString().replaceAll(":","-");
-        const storagePath = `resources/uploads/${ts}_${file.name}`;
-        const storageRef = ref(storage, storagePath);
+    if (uploadBtn) {
+      uploadBtn.addEventListener("click", async () => {
+        try {
+          await ensureSignedIn();
+          const file = fileEl?.files?.[0];
+          if (!file) return alert("Pick a file first.");
 
-        progEl.hidden = false; progEl.value = 0; uploadBtn.disabled = true;
-        const task = uploadBytesResumable(storageRef, file, { contentType: file.type || "application/octet-stream" });
+          const ts = new Date().toISOString().replaceAll(":","-");
+          const storagePath = `resources/uploads/${ts}_${file.name}`;
+          const storageRef = ref(storage, storagePath);
 
-        task.on("state_changed",
-          (snap) => { progEl.value = Math.round((snap.bytesTransferred / snap.totalBytes)*100); },
-          (error) => { progEl.hidden = true; uploadBtn.disabled = false; statusEl.innerHTML = `<span class="err">${error.message}</span>`; },
-          async () => {
-            const url = await getDownloadURL(task.snapshot.ref);
-            progEl.hidden = true; uploadBtn.disabled = false;
-            statusEl.innerHTML = `<span class="ok">Uploaded ✔</span>`;
-            resultEl.innerHTML = `Path: <code>${storagePath}</code><br>URL: <a href="${url}" target="_blank">${url}</a>`;
-          }
-        );
-      } catch (e) {
-        progEl.hidden = true; uploadBtn.disabled = false;
-        statusEl.innerHTML = `<span class="err">${e.message}</span>`;
-        console.error(e);
-      }
-    });
-  </script>
-</body>
-</html>
+          if (progEl) { progEl.hidden = false; progEl.value = 0; }
+          uploadBtn.disabled = true;
+
+          const task = uploadBytesResumable(storageRef, file, {
+            contentType: file.type || "application/octet-stream"
+          });
+
+          task.on("state_changed",
+            (snap) => {
+              if (progEl) progEl.value = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+            },
+            (error) => {
+              if (progEl) progEl.hidden = true;
+              uploadBtn.disabled = false;
+              if (statusEl) statusEl.innerHTML = `<span class="err">${error.message}</span>`;
+              console.error("Upload error:", error.code, error.message);
+            },
+            async () => {
+              const url = await getDownloadURL(task.snapshot.ref);
+              if (progEl) progEl.hidden = true;
+              uploadBtn.disabled = false;
+              if (statusEl) statusEl.innerHTML = `<span class="ok">Uploaded ✔</span>`;
+              if (resultEl) resultEl.innerHTML = `Path: <code>${storagePath}</code><br>URL: <a href="${url}" target="_blank" rel="noopener">${url}</a>`;
+              console.log("Uploaded ✔ URL:", url);
+            }
+          );
+        } catch (e) {
+          if (progEl) progEl.hidden = true;
+          uploadBtn.disabled = false;
+          if (statusEl) statusEl.innerHTML = `<span class="err">${e.message}</span>`;
+          console.error(e);
+        }
+      });
+    }
+  });
+</script>
